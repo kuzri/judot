@@ -11,15 +11,21 @@ const db = admin.firestore();
 
 exports.fetchPostWithCheerio = async (message) => {
   console.log('Cheerio 스크래핑 시작');
+  // console.log('message:', JSON.stringify(message, null, 2));
+  // console.log(typeof message);
+  
   
   try {
-    // PubSub 메시지에서 데이터 추출
-    const messageBody = message.data 
-      ? JSON.parse(message.data.toString()) 
-      : message.json;
+    // // PubSub 메시지에서 데이터 추출
+    // const messageBody = message.data 
+    //   ? JSON.parse(message.data.toString()) 
+    //   : message.json;
     
-    const { url, index, timestamp } = messageBody;
+
+    const { url, index, title, timestamp } = message.attributes;
     console.log(`게시물 처리 중 (${index}): ${url}`);
+    // console.log(`게시물 처리 중 (${index}): ${title}`);
+    // console.log(`게시물 처리 중 (${index}): ${timestamp}`);
     
     // HTTP 요청으로 게시물 내용 가져오기
     const response = await axios.get(url, {
@@ -37,40 +43,44 @@ exports.fetchPostWithCheerio = async (message) => {
     
     // Cheerio로 HTML 파싱
     const $ = cheerio.load(response.data);
+
+    const dataLink = $('a.se-link').attr('href');
+
+    console.log(dataLink);
     
-    // 메타데이터 추출
-    const title = $('meta[property="og:title"]').attr('content') 
-      || $('title').text() 
-      || '제목 없음';
+    // // 메타데이터 추출
+    // const title = $('meta[property="og:title"]').attr('content') 
+    //   || $('title').text() 
+    //   || '제목 없음';
     
-    const description = $('meta[property="og:description"]').attr('content') 
-      || $('meta[name="description"]').attr('content') 
-      || '';
+    // const description = $('meta[property="og:description"]').attr('content') 
+    //   || $('meta[name="description"]').attr('content') 
+    //   || '';
     
-    // 게시물 내용 추출 (여러 선택자 시도)
-    const contentSelectors = [
-      '#postContent',
-      '.ContentRenderer', 
-      '.post-content',
-      '.article-content',
-      '.content',
-      '.post_ct'
-    ];
+    // // 게시물 내용 추출 (여러 선택자 시도)
+    // const contentSelectors = [
+    //   '#postContent',
+    //   '.ContentRenderer', 
+    //   '.post-content',
+    //   '.article-content',
+    //   '.content',
+    //   '.post_ct'
+    // ];
     
-    let content = '';
-    for (const selector of contentSelectors) {
-      content = $(selector).text().trim();
-      if (content) break;
-    }
+    // let content = '';
+    // for (const selector of contentSelectors) {
+    //   content = $(selector).text().trim();
+    //   if (content) break;
+    // }
     
     // 작성자 정보 추출
-    const author = $('.nick, .author, .writer').first().text().trim() || '작성자 미확인';
+    // const author = $('.nick, .author, .writer').first().text().trim() || '작성자 미확인';
     
     // 작성일 추출
-    const dateText = $('.date, .post-date, .write-date').first().text().trim() || '';
+    // const dateText = $('.date, .post-date, .write-date').first().text().trim() || '';
     
     // 데이터 검증
-    if (!title && !content) {
+    if (!title) {
       throw new Error('게시물 내용을 추출할 수 없습니다.');
     }
     
@@ -79,10 +89,10 @@ exports.fetchPostWithCheerio = async (message) => {
     const docData = {
       url: url,
       title: title.substring(0, 500), // 제목 길이 제한
-      content: content.substring(0, 5000), // 내용 길이 제한
-      description: description.substring(0, 500),
-      author: author,
-      post_date: dateText,
+      // content: content.substring(0, 5000), // 내용 길이 제한
+      // description: description.substring(0, 500),
+      // author: author,
+      // post_date: dateText,
       scraped_at: admin.firestore.FieldValue.serverTimestamp(),
       scraping_timestamp: timestamp,
       index: index || 0,

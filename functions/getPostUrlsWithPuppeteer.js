@@ -230,9 +230,11 @@ exports.getPostUrlsWithPuppeteer = async (req, res) => {
         };
         
         return topic.publishMessage({ 
-          data: Buffer.from(JSON.stringify(messageData)),
           attributes: {
             'url': url.href,
+            'title': url.text,
+            'index': (index + 1).toString(),
+            'timestamp': messageData.timestamp,
             'source': 'naver-cafe-scraping'
           }
         });
