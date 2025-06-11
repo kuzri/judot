@@ -14,7 +14,6 @@ exports.fetchPostWithCheerio = async (message) => {
   // console.log('message:', JSON.stringify(message, null, 2));
   // console.log(typeof message);
   
-  
   try {
     // // PubSub 메시지에서 데이터 추출
     // const messageBody = message.data 
@@ -23,12 +22,20 @@ exports.fetchPostWithCheerio = async (message) => {
     
 
     const { url, index, title, timestamp } = message.attributes;
-    console.log(`게시물 처리 중 (${index}): ${url}`);
+
+    const urlId = new URL(url);
+    const pathname = urlId.pathname; // 👉 /f-e/cafes/27842958/articles/20188102
+
+    const parts = pathname.split('/');
+    let resUrl = parts.includes('articles') ? parts[parts.indexOf('articles') + 1] : null;
+    resUrl = resUrl ? `https://cafe.naver.com/steamindiegame/${resUrl}` : null;
+
+    console.log(`게시물 처리 중 (${index}): ${resUrl}`);
     // console.log(`게시물 처리 중 (${index}): ${title}`);
     // console.log(`게시물 처리 중 (${index}): ${timestamp}`);
     
     // HTTP 요청으로 게시물 내용 가져오기
-    const response = await axios.get(url, {
+    const response = await axios.get(resUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -43,10 +50,19 @@ exports.fetchPostWithCheerio = async (message) => {
     
     // Cheerio로 HTML 파싱
     const $ = cheerio.load(response.data);
+    
 
-    const dataLink = $('a.se-link').attr('href');
+    $('data-linktype').each((i, el) => {
+      console.log(`[${i}]`);
+    });
 
-    console.log(dataLink);
+  // // Cheerio 객체 선택
+  // $('a').attr('href').each((i, el) => {
+  //   const href = $(el).attr('href');
+  //   console.log(href);
+  // });;
+
+
     
     // // 메타데이터 추출
     // const title = $('meta[property="og:title"]').attr('content') 
@@ -85,9 +101,9 @@ exports.fetchPostWithCheerio = async (message) => {
     }
     
     // Firestore에 저장
-    const docId = Buffer.from(url).toString('base64').substring(0, 100); // URL을 base64로 인코딩
+    const docId = Buffer.from(resUrl).toString('base64').substring(0, 100); // URL을 base64로 인코딩
     const docData = {
-      url: url,
+      url: resUrl,
       title: title.substring(0, 500), // 제목 길이 제한
       // content: content.substring(0, 5000), // 내용 길이 제한
       // description: description.substring(0, 500),
@@ -108,12 +124,12 @@ exports.fetchPostWithCheerio = async (message) => {
     
     // 실패한 항목도 로그로 기록
     try {
-      const messageBody = message.data 
-        ? JSON.parse(message.data.toString()) 
-        : message.json;
+      // const messageBody = message.data 
+      //   ? JSON.parse(message.data.toString()) 
+      //   : message.json;
       
       await db.collection('scraping_errors').add({
-        url: messageBody.url || 'unknown',
+        url: messageBody.resUrl || 'unknown',
         error: error.message,
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
         index: messageBody.index || 0
