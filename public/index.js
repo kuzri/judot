@@ -14,3 +14,4 @@ async function fetchScrapedData() {
   const querySnapshot = await getDocs(collection(db, "scrapedData"));
   return querySnapshot.docs.map(doc => doc.data());
 }
+
