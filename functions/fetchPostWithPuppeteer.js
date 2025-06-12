@@ -1,6 +1,6 @@
-// fetchPostWithPuppeteer.js
+// fetchPostWithPuppeteer.js (에러 수정 버전)
+const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
-const puppeteer = require('puppeteer');
 const admin = require('firebase-admin');
 
 if (!admin.apps.length) {
@@ -9,114 +9,7 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-// Chrome 경로 감지 함수 (Cloud Functions 최적화)
-async function getChromePath() {
-  const fs = require('fs');
-  
-  // 환경변수에서 우선 확인
-  if (process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
-    console.log('환경변수에서 Chrome 경로 발견:', process.env.PUPPETEER_EXECUTABLE_PATH);
-    return process.env.PUPPETEER_EXECUTABLE_PATH;
-  }
-
-  // Cloud Functions Gen 2에서 사용 가능한 Chrome 경로들
-  const possiblePaths = [
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/google-chrome',
-    '/usr/bin/chromium-browser',
-    '/usr/bin/chromium',
-    '/opt/google/chrome/chrome',
-    '/usr/local/bin/google-chrome-stable',
-    '/usr/local/bin/google-chrome',
-    // Cloud Run/Functions에서 자주 사용되는 경로들
-    '/opt/render/project/.render/chrome/opt/google/chrome/chrome',
-    '/layers/google.nodejs.runtime/nodejs/bin/chrome'
-  ];
-  
-  // 경로 확인
-  for (const chromePath of possiblePaths) {
-    try {
-      if (fs.existsSync(chromePath)) {
-        console.log('Chrome 경로 발견:', chromePath);
-        return chromePath;
-      }
-    } catch (error) {
-      continue;
-    }
-  }
-
-  // Chrome 다운로드 시도 (Cloud Functions에서 런타임에 다운로드)
-  try {
-    console.log('Chrome을 런타임에 다운로드 시도...');
-    const { execSync } = require('child_process');
-    
-    // Chrome 설치 시도
-    execSync('apt-get update && apt-get install -y wget gnupg', { stdio: 'inherit' });
-    execSync('wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add -', { stdio: 'inherit' });
-    execSync('echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list', { stdio: 'inherit' });
-    execSync('apt-get update', { stdio: 'inherit' });
-    execSync('apt-get install -y google-chrome-stable', { stdio: 'inherit' });
-    
-    if (fs.existsSync('/usr/bin/google-chrome-stable')) {
-      console.log('Chrome 설치 성공');
-      return '/usr/bin/google-chrome-stable';
-    }
-  } catch (installError) {
-    console.log('Chrome 설치 실패:', installError.message);
-  }
-  
-  console.log('Chrome 경로를 찾을 수 없음');
-  throw new Error('Chrome을 찾을 수 없습니다. Cloud Functions 설정을 확인하세요.');
-}
-
-// 설정값들
-const CONFIG = {
-  TIMEOUT: 20000, // 타임아웃 증가 (JS 로딩 시간 고려)
-  MAX_RETRIES: 3, // 재시도 횟수 증가
-  RATE_LIMIT_DELAY: 1000, // 딜레이 증가
-  MAX_CONCURRENT_REQUESTS: 3, // 동시 요청 수 감소 (안정성)
-  PAGE_LOAD_DELAY: 2000 // 페이지 로드 후 대기 시간
-};
-
-// 현재 실행 중인 요청 수 추적
-let currentRequests = 0;
-
-// 재시도 로직을 위한 헬퍼 함수
-async function retryWithDelay(fn, maxRetries = CONFIG.MAX_RETRIES, delay = CONFIG.RATE_LIMIT_DELAY) {
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      return await fn();
-    } catch (error) {
-      console.log(`시도 ${i + 1}/${maxRetries} 실패:`, error.message);
-      if (i === maxRetries - 1) throw error;
-      await new Promise(resolve => setTimeout(resolve, delay * Math.pow(2, i))); // 지수 백오프
-    }
-  }
-}
-
-// URL 유효성 검사
-function validateUrl(url) {
-  try {
-    const urlObj = new URL(url);
-    return urlObj.protocol === 'http:' || urlObj.protocol === 'https:';
-  } catch {
-    return false;
-  }
-}
-
-// 중복 체크 함수
-async function checkDuplicatePost(url) {
-  try {
-    const docId = Buffer.from(url).toString('base64').substring(0, 100);
-    const doc = await db.collection('scraped_links').doc(docId).get();
-    return doc.exists;
-  } catch (error) {
-    console.error('중복 체크 실패:', error);
-    return false;
-  }
-}
-
-// 링크 중복 체크 및 유효성 검사 함수
+// 링크 유효성 검사 및 필터링 함수
 async function validateAndFilterLinks(links, sourceUrl) {
   if (!links || links.length === 0) return [];
   
@@ -124,11 +17,6 @@ async function validateAndFilterLinks(links, sourceUrl) {
   const seenHrefs = new Set();
   
   for (const link of links) {
-    // 기본 유효성 검사
-    if (!link.href || typeof link.href !== 'string' || !validateUrl(link.href)) {
-      continue;
-    }
-    
     // 중복 제거 (같은 페이지 내에서)
     if (seenHrefs.has(link.href)) {
       continue;
@@ -145,6 +33,12 @@ async function validateAndFilterLinks(links, sourceUrl) {
       if (linkUrl.hostname.includes('cafe.naver.com')) {
         continue;
       }
+      
+      // 기타 불필요한 도메인 필터링
+      const excludedDomains = ['javascript:', 'mailto:', 'tel:', '#'];
+      if (excludedDomains.some(domain => link.href.startsWith(domain))) {
+        continue;
+      }
     } catch {
       continue; // URL 파싱 실패시 스킵
     }
@@ -156,272 +50,486 @@ async function validateAndFilterLinks(links, sourceUrl) {
   return validLinks;
 }
 
-// 브라우저 설정 최적화 (Cloud Functions)
-function getBrowserArgs() {
-  return [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--disable-accelerated-2d-canvas',
-    '--no-first-run',
-    '--no-zygote',
-    '--single-process', // Cloud Functions에서 중요
-    '--disable-gpu',
-    '--disable-web-security',
-    '--disable-features=VizDisplayCompositor',
-    '--disable-extensions',
-    '--disable-plugins',
-    '--disable-default-apps',
-    '--disable-background-timer-throttling',
-    '--disable-backgrounding-occluded-windows',
-    '--disable-renderer-backgrounding',
-    '--memory-pressure-off',
-    '--max_old_space_size=512', // Cloud Functions 메모리 제한 고려
-    '--disable-blink-features=AutomationControlled',
-    '--disable-software-rasterizer',
-    '--disable-background-networking',
-    '--disable-client-side-phishing-detection',
-    '--disable-sync',
-    '--disable-translate',
-    '--hide-scrollbars',
-    '--metrics-recording-only',
-    '--mute-audio',
-    '--no-default-browser-check',
-    '--safebrowsing-disable-auto-update',
-    '--disable-ipc-flooding-protection'
-  ];
-}
-
-exports.fetchPostWithPuppeteer = async (message) => {
-  // 동시 요청 수 제한
-  if (currentRequests >= CONFIG.MAX_CONCURRENT_REQUESTS) {
-    throw new Error('동시 요청 수 제한 초과');
-  }
-
-
-  console.log("message:", message);
-
-  currentRequests++;
-  console.log(`링크 추출 시작 (현재 요청: ${currentRequests})`);
+// 브라우저 실행 함수 (에러 처리 강화)
+async function launchBrowser() {
+  const isLocal = process.env.FUNCTIONS_EMULATOR === 'true' || process.env.NODE_ENV === 'development';
+  
+  console.log('환경 확인:', { 
+    isLocal, 
+    NODE_ENV: process.env.NODE_ENV,
+    FUNCTIONS_EMULATOR: process.env.FUNCTIONS_EMULATOR 
+  });
 
   let browser;
-  let page;
-  let resUrl;
-  let index = 0;
+  
+  if (isLocal) {
+    console.log('로컬 환경에서 실행');
+    try {
+      // 로컬에서는 일반 puppeteer 사용
+      const puppeteerRegular = require('puppeteer');
+      browser = await puppeteerRegular.launch({
+        headless: 'new',
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+    } catch (localError) {
+      console.warn('로컬 puppeteer 실패, chromium 사용:', localError.message);
+      // 로컬에서도 chromium 사용 시도
+      browser = await launchChromiumBrowser();
+    }
+  } else {
+      browser = await puppeteer.launch({
+        args: chromium.args,
+        defaultViewport: chromium.defaultViewport,
+        executablePath: await chromium.executablePath(),
+        headless: chromium.headless,      });
+  }
+  
+  return browser;
+}
+
+// Chromium 브라우저 실행 함수
+async function launchChromiumBrowser() {
+  // @sparticuz/chromium 설정 최적화
+  const executablePath = await chromium.executablePath();
+  
+  console.log('Chromium 실행 경로:', executablePath);
+  
+  // 실행 파일 존재 확인 (선택적)
+  const fs = require('fs');
+  if (executablePath && fs.existsSync && fs.existsSync(executablePath)) {
+    console.log('Chromium 실행 파일 확인됨');
+  } else {
+    console.warn('Chromium 실행 파일 경로 불확실, 계속 진행');
+  }
+
+  // 브라우저 실행 옵션 최적화
+  const launchOptions = {
+    args: [
+      ...chromium.args,
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-accelerated-2d-canvas',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process', // 메모리 사용량 감소
+      '--disable-gpu',
+      '--disable-web-security',
+      '--disable-blink-features=AutomationControlled'
+    ],
+    defaultViewport: chromium.defaultViewport,
+    executablePath: executablePath,
+    headless: chromium.headless,
+    ignoreHTTPSErrors: true,
+    timeout: 30000 // 브라우저 시작 타임아웃
+  };
+
+  console.log('브라우저 실행 옵션:', JSON.stringify(launchOptions, null, 2));
 
   try {
-    // 메시지 속성 검증
-    if (!message || !message.attributes) {
-      throw new Error('잘못된 메시지 형식');
-    }
-
-    const { url, index: msgIndex } = message.attributes;
-    index = parseInt(msgIndex) || 0;
-
-    if (!url || typeof url !== 'string') {
-      throw new Error('URL이 제공되지 않음');
-    }
-
-    // URL 처리 및 검증
-    if (!validateUrl(url)) {
-      throw new Error('유효하지 않은 URL');
-    }
-
-    const urlId = new URL(url);
-    const pathname = urlId.pathname;
-    const parts = pathname.split('/').filter(part => part.length > 0);
-    let articleId = parts.includes('articles') ? parts[parts.indexOf('articles') + 1] : null;
+    const browser = await puppeteer.launch(launchOptions);
+    console.log('브라우저 실행 성공');
+    return browser;
+  } catch (launchError) {
+    console.error('브라우저 실행 실패:', launchError.message);
+    console.error('실행 경로:', executablePath);
     
-    if (!articleId || !/^\d+$/.test(articleId)) {
-      throw new Error('게시물 ID를 찾을 수 없음');
-    }
+    // 대안 시도: 더 간단한 옵션으로 재시도
+    console.log('간단한 옵션으로 재시도...');
+    const fallbackOptions = {
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--single-process'
+      ],
+      executablePath: executablePath,
+      headless: true,
+      timeout: 15000
+    };
+    
+    return await puppeteer.launch(fallbackOptions);
+  }
+}
 
-    resUrl = `https://cafe.naver.com/steamindiegame/${articleId}`;
+// 메인 함수
+exports.fetchPostWithPuppeteer = async (message) => {
+  console.log('링크 추출 작업 시작');
+  
+  let browser;
+  let parsedData;
 
-    // 중복 체크
-    const isDuplicate = await checkDuplicatePost(resUrl);
-    if (isDuplicate) {
-      console.log(`중복 게시물 스킵 (${index}): ${resUrl}`);
-      return { success: true, skipped: true, reason: 'duplicate' };
-    }
+  try {
+    const { url, index, title } = message.data.message.attributes;
+    
+    console.log(`작업 시작 - Index: ${index}, title: ${title}, URL: ${url}`);
 
-    console.log(`링크 추출 중 (${index}): ${resUrl}`);
+    const targetUrl = url;
+    console.log(`대상 URL: ${targetUrl}`);
 
-    // Puppeteer 실행 - 링크 추출
-    const extractedLinks = await retryWithDelay(async () => {
+    // 브라우저 실행 (에러 처리 강화)
+    console.log('브라우저 설정 시작...');
+    browser = await launchBrowser();
+    console.log('브라우저 실행 완료');
+    
+    const page = await browser.newPage();
+    
+    // 타임아웃 설정 감소 (안정성 향상)
+    page.setDefaultNavigationTimeout(45000);
+    page.setDefaultTimeout(45000);
+    
+    // 페이지 설정
+    await page.setViewport({ width: 1280, height: 720 });
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    
+    await page.setExtraHTTPHeaders({
+      'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8'
+    });
+
+    console.log('페이지 로딩 중...');
+    
+    // 페이지 로딩 (재시도 로직 추가)
+    let response;
+    let retryCount = 0;
+    const maxRetries = 2;
+    
+    while (retryCount <= maxRetries) {
       try {
-        const chromePath = await getChromePath();
+        response = await page.goto(targetUrl, { 
+          waitUntil: 'domcontentloaded', // networkidle2 대신 더 빠른 옵션
+          timeout: 45000
+        });
         
-      const launchOptions = {
-        headless: chromium.headless,
-        args: chromium.args,
-        executablePath: await chromium.executablePath()
-      };
+        console.log('페이지 로딩 완료, 상태:', response.status());
+        break;
         
-        console.log('Puppeteer 실행 중...', { chromePath });
-        browser = await puppeteer.launch(launchOptions);
+      } catch (navError) {
+        console.error(`페이지 네비게이션 에러 (시도 ${retryCount + 1}):`, navError.message);
         
-      } catch (launchError) {
-        console.error('Puppeteer 실행 실패:', launchError.message);
-        throw launchError;
-      }
-
-      page = await browser.newPage();
-      
-      // 필요한 리소스만 로드하도록 설정 (JavaScript는 허용)
-      await page.setRequestInterception(true);
-      page.on('request', (request) => {
-        const resourceType = request.resourceType();
-        const url = request.url();
-        
-        // 필요한 리소스만 허용
-        if (resourceType === 'document' || 
-            resourceType === 'script' || 
-            (resourceType === 'xhr' && url.includes('cafe.naver.com'))) {
-          request.continue();
+        if (retryCount === maxRetries) {
+          // 마지막 시도에서 대안 URL 시도
+          const urlMatch = targetUrl.match(/\/articles\/(\d+)/);
+          if (urlMatch) {
+            const articleId = urlMatch[1];
+            const alternativeUrl = `https://cafe.naver.com/steamindiegame/${articleId}`;
+            console.log('대안 URL 시도:', alternativeUrl);
+            
+            response = await page.goto(alternativeUrl, { 
+              waitUntil: 'domcontentloaded',
+              timeout: 45000
+            });
+          } else {
+            throw navError;
+          }
         } else {
-          // 이미지, CSS, 폰트 등 불필요한 리소스 차단
-          request.abort();
+          retryCount++;
+          await new Promise(resolve => setTimeout(resolve, 2000)); // 2초 대기
+        }
+      }
+    }
+
+    // 페이지 로딩 완료 대기
+    try {
+      await page.waitForSelector('body', { timeout: 10000 });
+    } catch (waitError) {
+      console.warn('body 셀렉터 대기 실패, 계속 진행:', waitError.message);
+    }
+
+    const pageTitle = await page.title();
+    console.log('페이지 제목:', pageTitle);
+
+    // ===== 전체 페이지 정보 로깅 =====
+    console.log('========== 페이지 전체 정보 로깅 시작 ==========');
+    
+    try {
+      // 기본 페이지 정보
+      const pageInfo = await page.evaluate(() => {
+        return {
+          url: window.location.href,
+          title: document.title,
+          readyState: document.readyState,
+          domain: document.domain,
+          referrer: document.referrer,
+          lastModified: document.lastModified,
+          characterSet: document.characterSet,
+          contentType: document.contentType,
+          doctype: document.doctype ? document.doctype.name : null,
+          bodyExists: !!document.body,
+          headExists: !!document.head,
+          bodyTagName: document.body ? document.body.tagName : null,
+          bodyClasses: document.body ? document.body.className : null,
+          bodyId: document.body ? document.body.id : null
+        };
+      });
+      console.log('기본 페이지 정보:', JSON.stringify(pageInfo, null, 2));
+
+      // HTML 구조 정보
+      const structureInfo = await page.evaluate(() => {
+        const allElements = document.querySelectorAll('*');
+        const tagCount = {};
+        
+        allElements.forEach(el => {
+          const tagName = el.tagName.toLowerCase();
+          tagCount[tagName] = (tagCount[tagName] || 0) + 1;
+        });
+
+        return {
+          totalElements: allElements.length,
+          tagDistribution: tagCount,
+          hasFrames: document.querySelectorAll('iframe, frame').length > 0,
+          frameCount: document.querySelectorAll('iframe, frame').length,
+          formCount: document.querySelectorAll('form').length,
+          inputCount: document.querySelectorAll('input').length,
+          linkCount: document.querySelectorAll('a').length,
+          imageCount: document.querySelectorAll('img').length,
+          scriptCount: document.querySelectorAll('script').length,
+          styleCount: document.querySelectorAll('style, link[rel="stylesheet"]').length
+        };
+      });
+      console.log('HTML 구조 정보:', JSON.stringify(structureInfo, null, 2));
+
+      // 네이버 카페 특화 정보
+      const naverCafeInfo = await page.evaluate(() => {
+        const cafeInfo = {
+          isCafePage: window.location.hostname.includes('cafe.naver.com'),
+          hasArticleContent: !!document.querySelector('.se-main-container, .article_container, #tbody'),
+          hasComments: !!document.querySelector('.comment_area, .reply_area'),
+          hasNaverHeader: !!document.querySelector('#header, .gnb_area'),
+          articleSelectors: []
+        };
+
+        // 일반적인 네이버 카페 셀렉터들 확인
+        const commonSelectors = [
+          '.se-main-container',
+          '.article_container', 
+          '#tbody',
+          '.ArticleContentBox',
+          '.article_viewer',
+          '.se-module-text',
+          'article',
+          '.post_content',
+          '.content_area'
+        ];
+
+        commonSelectors.forEach(selector => {
+          const element = document.querySelector(selector);
+          if (element) {
+            cafeInfo.articleSelectors.push({
+              selector: selector,
+              exists: true,
+              textLength: element.textContent ? element.textContent.length : 0,
+              innerHTML: element.innerHTML ? element.innerHTML.substring(0, 200) + '...' : ''
+            });
+          }
+        });
+
+        return cafeInfo;
+      });
+      console.log('네이버 카페 특화 정보:', JSON.stringify(naverCafeInfo, null, 2));
+
+      // 링크 미리보기 (추출 전)
+      const linkPreview = await page.evaluate(() => {
+        const links = document.querySelectorAll('a[href]');
+        const linkInfo = {
+          totalLinks: links.length,
+          externalLinks: 0,
+          internalLinks: 0,
+          linkSamples: []
+        };
+
+        const currentDomain = window.location.hostname;
+        
+        for (let i = 0; i < Math.min(links.length, 10); i++) {
+          const link = links[i];
+          const href = link.href;
+          const isExternal = !href.includes(currentDomain);
+          
+          if (isExternal) linkInfo.externalLinks++;
+          else linkInfo.internalLinks++;
+          
+          linkInfo.linkSamples.push({
+            href: href,
+            text: link.textContent.trim().substring(0, 50),
+            isExternal: isExternal,
+            hasTarget: !!link.target,
+            target: link.target || ''
+          });
+        }
+
+        return linkInfo;
+      });
+      console.log('링크 미리보기:', JSON.stringify(linkPreview, null, 2));
+
+      // 페이지 성능 정보
+      const performanceInfo = await page.evaluate(() => {
+        if (window.performance && window.performance.timing) {
+          const timing = window.performance.timing;
+          return {
+            loadTime: timing.loadEventEnd - timing.navigationStart,
+            domReady: timing.domContentLoadedEventEnd - timing.navigationStart,
+            firstPaint: window.performance.getEntriesByType ? 
+              window.performance.getEntriesByType('paint').find(entry => entry.name === 'first-paint')?.startTime : null
+          };
+        }
+        return { message: 'Performance API not available' };
+      });
+      console.log('페이지 성능 정보:', JSON.stringify(performanceInfo, null, 2));
+
+      // 에러 정보 (콘솔 에러)
+      const consoleErrors = [];
+      page.on('console', (msg) => {
+        if (msg.type() === 'error') {
+          consoleErrors.push(msg.text());
         }
       });
+      
+      if (consoleErrors.length > 0) {
+        console.log('페이지 콘솔 에러들:', consoleErrors.slice(0, 5)); // 최대 5개만
+      }
 
-      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-      page.setDefaultTimeout(CONFIG.TIMEOUT);
+      // 현재 뷰포트에서 보이는 요소들
+      const visibleElements = await page.evaluate(() => {
+        const isElementVisible = (el) => {
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0 && 
+                 rect.top < window.innerHeight && rect.bottom > 0;
+        };
 
-      // 페이지 로드
-      await page.goto(resUrl, {
-        waitUntil: 'networkidle2', // 네트워크 요청이 완료될 때까지 대기
-        timeout: CONFIG.TIMEOUT
+        const visibleLinks = [];
+        const links = document.querySelectorAll('a[href]');
+        
+        for (let i = 0; i < Math.min(links.length, 20); i++) {
+          const link = links[i];
+          if (isElementVisible(link)) {
+            visibleLinks.push({
+              href: link.href,
+              text: link.textContent.trim().substring(0, 30),
+              position: {
+                top: link.getBoundingClientRect().top,
+                left: link.getBoundingClientRect().left
+              }
+            });
+          }
+        }
+
+        return {
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+          scrollPosition: { x: window.scrollX, y: window.scrollY },
+          visibleLinksCount: visibleLinks.length,
+          visibleLinks: visibleLinks.slice(0, 10) // 상위 10개만
+        };
       });
+      console.log('뷰포트 내 가시 요소:', JSON.stringify(visibleElements, null, 2));
 
-      // 페이지 로드 후 추가 대기 (동적 콘텐츠 로딩)
-      await new Promise(resolve => setTimeout(resolve, CONFIG.PAGE_LOAD_DELAY));
+    } catch (debugError) {
+      console.error('페이지 정보 로깅 중 에러:', debugError.message);
+    }
+    
+    console.log('========== 페이지 전체 정보 로깅 완료 ==========');
 
-      // 링크 추출
-      const rawLinks = await page.evaluate(() => {
-        const selectors = [
-          'a.se-link.__se_link',
-          'a[href^="http"]',
-          '.se-module-text a',
-          '.se-text-paragraph a'
-        ];
-        
-        const links = [];
-        const seenHrefs = new Set();
-        
-        selectors.forEach(selector => {
+    // 링크 추출 로직
+    console.log('링크 추출 중...');
+    const rawLinks = await page.evaluate(() => {
+      const selectors = [
+        'a[href^="http"]',
+        '.se-module-text a',
+        'article a[href^="http"]'
+      ];
+      
+      const links = [];
+      const seenHrefs = new Set();
+      
+      selectors.forEach(selector => {
+        try {
           const elements = document.querySelectorAll(selector);
+          
           elements.forEach((element, index) => {
             const href = element.href;
             if (href && !seenHrefs.has(href)) {
               seenHrefs.add(href);
               links.push({
                 href: href,
-                text: element.textContent?.trim() || '',
-                selector: selector,
-                index: index
+                text: element.textContent?.trim() || ''
               });
             }
           });
-        });
-        
-        return links;
+        } catch (selectorError) {
+          console.error('선택자 에러:', selectorError);
+        }
       });
-
-      return rawLinks;
+      
+      return links;
     });
 
+    console.log(`원본 링크 ${rawLinks.length}개 추출 완료`);
+
     // 링크 유효성 검사 및 필터링
-    const validLinks = await validateAndFilterLinks(extractedLinks, resUrl);
-    console.log(`총 링크: ${extractedLinks.length}, 유효한 외부 링크: ${validLinks.length}`);
+    const validLinks = await validateAndFilterLinks(rawLinks, targetUrl);
+    console.log(`유효한 외부 링크: ${validLinks.length}개`);
 
-    // 링크가 없으면 저장하지 않음
-    if (validLinks.length === 0) {
-      console.log(`유효한 외부 링크 없음 - 저장 스킵 (${index})`);
-      return { success: true, skipped: true, reason: 'no_valid_links' };
-    }
-
-    // Firebase에 링크 저장
-    const docId = Buffer.from(resUrl).toString('base64').substring(0, 100);
+    // Firebase에 데이터 저장
+    console.log('Firebase에 데이터 저장 중...');
+    const docId = Buffer.from(targetUrl).toString('base64').substring(0, 80);
     const linkData = {
-      source_url: resUrl,
+      source_url: targetUrl,
       links: validLinks.map(link => ({
         href: link.href,
-        text: link.text?.substring(0, 100) || '' // 텍스트도 저장하되 길이 제한
+        text: link.text
       })),
       links_count: validLinks.length,
       scraped_at: admin.firestore.FieldValue.serverTimestamp(),
-      index: parseInt(index) || 0,
-      source: 'naver-cafe',
-      article_id: articleId
+      index: parseInt(index),
+      batch_id: title,
+      source: 'naver-cafe'
     };
 
     await db.collection('scraped_links').doc(docId).set(linkData, { merge: true });
 
-    console.log(`외부 링크 ${validLinks.length}개 저장 완료 (${index})`);
+    console.log(`작업 완료 - Index: ${index}, 링크 ${validLinks.length}개 저장`);
     
     return { 
       success: true, 
       linksCount: validLinks.length,
-      articleId: articleId
+      index: parseInt(index),
+      title: title
     };
 
   } catch (error) {
-    console.error(`링크 추출 실패 (${index}):`, error.message);
+    const index = message?.data?.message?.attributes?.index || 0;
+    const url = message?.data?.message?.attributes?.url || 'unknown';
+    
+    console.error(`링크 추출 실패 (Index: ${index}):`, error.message);
+    console.error('에러 스택:', error.stack);
 
-    // 에러 분류 및 로깅
-    const errorTypes = {
-      timeout: ['timeout', 'Navigation timeout'],
-      network: ['net::ERR_', 'ERR_NETWORK'],
-      parsing: ['게시물 ID를 찾을 수 없음', '잘못된 메시지 형식'],
-      access: ['403', '404', 'Access denied']
-    };
-
-    let errorType = 'unknown';
-    for (const [type, patterns] of Object.entries(errorTypes)) {
-      if (patterns.some(pattern => error.message.includes(pattern))) {
-        errorType = type;
-        break;
-      }
-    }
-
-    // 중요한 에러만 데이터베이스에 로깅
-    if (errorType !== 'unknown') {
-      try {
-        await db.collection('link_extraction_errors').add({
-          url: resUrl || url || 'unknown',
-          error_message: error.message.substring(0, 300),
-          error_type: errorType,
-          timestamp: admin.firestore.FieldValue.serverTimestamp(),
-          index: parseInt(index) || 0,
-          source: 'puppeteer'
-        });
-      } catch (logError) {
-        console.error('에러 로깅 실패:', logError.message);
-      }
+    // 에러 로깅
+    try {
+      await db.collection('link_extraction_errors').add({
+        url: url,
+        error_message: error.message,
+        error_stack: error.stack?.substring(0, 1000),
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        index: parseInt(index),
+        batch_id: message?.data?.message?.attributes?.title || 'unknown',
+        error_type: error.name || 'UnknownError'
+      });
+    } catch (logError) {
+      console.error('에러 로깅 실패:', logError.message);
     }
 
     throw error;
 
   } finally {
     // 리소스 정리
-    try {
-      if (page && !page.isClosed()) {
-        await page.close();
-      }
-      if (browser && browser.isConnected()) {
+    if (browser) {
+      try {
         await browser.close();
+        console.log('브라우저 종료');
+      } catch (closeError) {
+        console.error('브라우저 종료 실패:', closeError.message);
       }
-    } catch (cleanupError) {
-      console.error('리소스 정리 실패:', cleanupError.message);
     }
-
-    currentRequests--;
-    console.log(`링크 추출 완료. 현재 요청 수: ${currentRequests}`);
-
-    // 요청 간 딜레이
-    if (currentRequests > 0) {
-      await new Promise(resolve => setTimeout(resolve, CONFIG.RATE_LIMIT_DELAY));
-    }
+    console.log('링크 추출 작업 종료');
   }
 };
