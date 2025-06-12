@@ -55,7 +55,7 @@ exports.fetchPostWithPuppeteer = onMessagePublished(
     topic: 'fetch-post-details',
     region: 'asia-northeast3',
     timeoutSeconds: 540,
-    memory: '2GiB',
+    memory: '4GiB',
   },
   fetchPostWithPuppeteer
 );
