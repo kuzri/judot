@@ -1,6 +1,6 @@
 const functions = require('firebase-functions');
 const { getPostUrlsWithPuppeteer } = require('./getPostUrlsWithPuppeteer');
-const { fetchPostWithCheerio } = require('./fetchPostWithCheerio');
+const { fetchPostWithPuppeteer } = require('./fetchPostWithPuppeteer');
 
 // 1. 스케줄러 함수 - 주기적으로 스크래핑 시작
 exports.scheduledScraping = functions
@@ -38,11 +38,11 @@ exports.getPostUrlsWithPuppeteer = functions
   .https.onRequest(getPostUrlsWithPuppeteer);
 
 // 3. PubSub으로 개별 게시물 상세 수집
-exports.fetchPostWithCheerio = functions
+exports.fetchPostWithPuppeteer = functions
   .region('asia-northeast3')
   .runWith({
-    timeoutSeconds: 120, // 2분
-    memory: '512MB'
+    timeoutSeconds: 540, // 9분
+    memory: '2GB'
   })
   .pubsub.topic('fetch-post-details')
-  .onPublish(fetchPostWithCheerio);
+  .onPublish(fetchPostWithPuppeteer);
