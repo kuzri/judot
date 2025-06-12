@@ -1,48 +1,61 @@
-const functions = require('firebase-functions');
-const { getPostUrlsWithPuppeteer } = require('./getPostUrlsWithPuppeteer');
-const { fetchPostWithPuppeteer } = require('./fetchPostWithPuppeteer');
+// functions/index.js
 
-// 1. 스케줄러 함수 - 주기적으로 스크래핑 시작
-exports.scheduledScraping = functions
-  .region('asia-northeast3')
-  .pubsub.schedule('every 24 hours') // 매일 실행 (또는 '0 9 * * *' 형태로 특정 시간 설정)
-  .timeZone('Asia/Seoul') // 한국 시간대
-  .onRun(async (context) => {
-    console.log('스케줄된 스크래핑 시작');
-    
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { onRequest } = require("firebase-functions/v2/https");
+const { onMessagePublished } = require('firebase-functions/v2/pubsub');
+const { logger } = require("firebase-functions");
+
+const { getPostUrlsWithPuppeteer } = require("./getPostUrlsWithPuppeteer");
+const { fetchPostWithPuppeteer } = require("./fetchPostWithPuppeteer");
+const axios = require("axios");
+
+// 1. 스케줄러 함수 - 매일 스크래핑 시작
+exports.scheduledScraping = onSchedule(
+  {
+    schedule: "every 24 hours", // 또는 cron: '0 9 * * *'
+    timeZone: "Asia/Seoul",
+    region: "asia-northeast3",
+    memory: "512MiB",
+    timeoutSeconds: 540,
+  },
+  async (event) => {
+    logger.info("스케줄된 스크래핑 시작");
+
     try {
-      // HTTP 함수 호출을 위한 URL
-      const functionUrl = 'https://asia-northeast3-dothighju.cloudfunctions.net/getPostUrlsWithPuppeteer';
-      
-      // 내부 HTTP 요청으로 Puppeteer 함수 호출
-      const axios = require('axios');
+      const functionUrl =
+        "https://asia-northeast3-dothighju.cloudfunctions.net/getPostUrlsWithPuppeteer";
+
       const response = await axios.get(functionUrl, {
-        timeout: 540000 // 9분 타임아웃
+        timeout: 540000, // 9분
       });
-      
-      console.log('Puppeteer 함수 호출 완료:', response.data);
+
+      logger.info("Puppeteer 함수 호출 완료", response.data);
       return { success: true, message: response.data };
     } catch (error) {
-      console.error('스케줄된 스크래핑 실패:', error);
+      logger.error("스케줄된 스크래핑 실패", error);
       throw new Error(`스케줄 실행 실패: ${error.message}`);
     }
-  });
+  }
+);
 
 // 2. Puppeteer로 URL 목록 가져오기 (HTTP 트리거)
-exports.getPostUrlsWithPuppeteer = functions
-  .region('asia-northeast3')
-  .runWith({
-    timeoutSeconds: 540, // 9분
-    memory: '2GB'
-  })
-  .https.onRequest(getPostUrlsWithPuppeteer);
+exports.getPostUrlsWithPuppeteer = onRequest(
+  {
+    region: "asia-northeast3",
+    memory: "2GiB",
+    timeoutSeconds: 540,
+    invoker: "public", // 필요시 "private"
+  },
+  getPostUrlsWithPuppeteer
+);
 
-// 3. PubSub으로 개별 게시물 상세 수집
-exports.fetchPostWithPuppeteer = functions
-  .region('asia-northeast3')
-  .runWith({
-    timeoutSeconds: 540, // 9분
-    memory: '2GB'
-  })
-  .pubsub.topic('fetch-post-details')
-  .onPublish(fetchPostWithPuppeteer);
+// 3. PubSub 트리거로 게시물 상세 수집
+exports.fetchPostWithPuppeteer = onMessagePublished(
+  {
+    topic: 'fetch-post-details',
+    region: 'asia-northeast3',
+    timeoutSeconds: 540,
+    memory: '2GiB',
+  },
+  fetchPostWithPuppeteer
+);
