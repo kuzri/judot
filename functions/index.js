@@ -56,6 +56,7 @@ exports.fetchPostWithPuppeteer = onMessagePublished(
     region: 'asia-northeast3',
     timeoutSeconds: 300,
     memory: '2GiB',
+    concurrency: 1,
   },
   fetchPostWithPuppeteer
 );
