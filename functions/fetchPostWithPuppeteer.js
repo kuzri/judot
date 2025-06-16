@@ -58,16 +58,21 @@ exports.fetchPostWithPuppeteer = async (message) => {
     const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
 
       const linkElement = iframeDoc.querySelector('.se-oglink-info');
+      const uploadedDate = iframeDoc.querySelector('.date').innerText;
+      const linkTitle = iframeDoc.querySelector('.date').innerText;
       if (linkElement && linkElement.href) {
         return {
+          title: linkTitle,
           href: linkElement.href,
+          uploadedDate: uploadedDate,
           text: linkElement.textContent?.trim() || ''
         };
       }
       return null;
     });
 
-    const docId = Buffer.from(url).toString('base64').substring(0, 80);
+    const docId = url.split('/').pop();// URL의 마지막 부분을 문서 ID로 사용
+    // const docId = Buffer.from(url).toString('base64').substring(0, 80);
     const saveData = {
       source_url: url,
       link: linkData, // 단일 링크 또는 null
@@ -90,6 +95,7 @@ exports.fetchPostWithPuppeteer = async (message) => {
       success: true, 
       hasLink: !!linkData, 
       link: linkData?.href,
+      uploadedDate: linkData?.uploadedDate || null,
       index: parseInt(index), 
       title 
     };

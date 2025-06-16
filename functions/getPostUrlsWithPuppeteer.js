@@ -16,14 +16,6 @@ exports.getPostUrlsWithPuppeteer = async (req, res) => {
     console.log('Chromium 설정 로딩 중...');
     const isLocal = process.env.FUNCTIONS_EMULATOR === 'true';
     console.log('로컬 환경:', isLocal);
-//     if (isLocal) {
-//   const puppeteerRegular = require('puppeteer');
-//   console.log('로컬 Puppeteer 실행 중...');
-//   browser = await puppeteerRegular.launch({
-//     headless: true,
-//     args: ['--no-sandbox', '--disable-setuid-sandbox']
-//   });
-// } else 
 {
   console.log('Cloud Functions Puppeteer 실행 중...');
   const execPath = await chromium.executablePath();
@@ -90,19 +82,14 @@ exports.getPostUrlsWithPuppeteer = async (req, res) => {
     console.log('PubSub으로 URL 전송 중...');
     const results = await Promise.allSettled(
       articles.map((url, index) => {
-        const messageData = {
-          url: url.href,
-          title: url.text,
-          index: index + 1,
-          timestamp: new Date().toISOString()
-        };
-        
+        const articleId = 'https://cafe.naver.com/steamindiegame/' + url.href.split('/articles/')[1].split('?')[0]
+        console.log(`URL: ${articleId}`);
         return topic.publishMessage({ 
           attributes: {
-            'url': url.href,
+            'url': articleId,
             'title': url.text,
             'index': (index + 1).toString(),
-            'timestamp': messageData.timestamp,
+            'timestamp':new Date().toISOString(),
             'source': 'naver-cafe-scraping'
           }
         });
