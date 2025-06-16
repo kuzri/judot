@@ -13,23 +13,29 @@ exports.getPostUrlsWithPuppeteer = async (req, res) => {
   
   try {
     // Firebase Functions용 Chromium 설정
+    console.log('Chromium 설정 로딩 중...');
     const isLocal = process.env.FUNCTIONS_EMULATOR === 'true';
-    
-    if (isLocal) {
-      const puppeteerRegular = require('puppeteer');
-      browser = await puppeteerRegular.launch({
-        headless: 'new',
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-      });
-    } else {
-      browser = await puppeteer.launch({
-        args: chromium.args,
-        defaultViewport: chromium.defaultViewport,
-        executablePath: await chromium.executablePath(),
-        headless: chromium.headless,
-      });
-    }
-    
+    console.log('로컬 환경:', isLocal);
+//     if (isLocal) {
+//   const puppeteerRegular = require('puppeteer');
+//   console.log('로컬 Puppeteer 실행 중...');
+//   browser = await puppeteerRegular.launch({
+//     headless: true,
+//     args: ['--no-sandbox', '--disable-setuid-sandbox']
+//   });
+// } else 
+{
+  console.log('Cloud Functions Puppeteer 실행 중...');
+  const execPath = await chromium.executablePath();
+  console.log('Chromium 실행 경로:', execPath);
+  browser = await puppeteer.launch({
+    args: chromium.args,
+    defaultViewport: chromium.defaultViewport,
+    executablePath: execPath,
+    headless: chromium.headless,
+  });
+}
+    console.log('브라우저 인스턴스 생성 완료');
     const page = await browser.newPage();
     
     // 타임아웃 설정 증가
@@ -53,7 +59,7 @@ exports.getPostUrlsWithPuppeteer = async (req, res) => {
     // 페이지 로딩 시도
     try {
       const response = await page.goto(targetUrl, { 
-        waitUntil: 'networkidle2',
+        waitUntil: 'networkidle0',
         timeout: 60000
       });
       
@@ -75,15 +81,6 @@ exports.getPostUrlsWithPuppeteer = async (req, res) => {
       
     } catch (navError) {
       console.error('페이지 네비게이션 에러:', navError.message);
-      
-      // 대안 URL 시도
-      const alternativeUrl = `https://cafe.naver.com/f-e/cafes/27842958/menus/331`;
-      console.log('대안 URL 시도:', alternativeUrl);
-      
-      await page.goto(alternativeUrl, { 
-        waitUntil: 'networkidle0',
-        timeout: 60000
-      });
     }
     
     // PubSub으로 각 URL 전송
