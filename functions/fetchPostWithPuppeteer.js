@@ -59,7 +59,7 @@ exports.fetchPostWithPuppeteer = async (message) => {
 
       const linkElement = iframeDoc.querySelector('.se-oglink-info');
       const uploadedDate = iframeDoc.querySelector('.date').innerText;
-      const linkTitle = iframeDoc.querySelector('.date').innerText;
+      const linkTitle = iframeDoc.querySelector('.title_text').innerText;
       const nickname = iframeDoc.querySelector('.nickname').innerText;
       // 
       if (linkElement && linkElement.href) {
