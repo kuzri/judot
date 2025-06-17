@@ -19,7 +19,7 @@ exports.fetchPostWithPuppeteer = async (message) => {
   let browser;
 
   try {
-    const { url, index, title } = message.data.message.attributes;
+    const { url, index } = message.data.message.attributes;
     console.log(`작업 시작 - Index: ${index}, URL: ${url}`);
 
     // browser = await launchBrowser();
@@ -59,6 +59,8 @@ exports.fetchPostWithPuppeteer = async (message) => {
 
       const linkElement = iframeDoc.querySelector('.se-oglink-info');
       const uploadedDate = iframeDoc.querySelector('.date').innerText;
+      const conversionDate = uploadedDate.split(" ")[0].replace(/\./g, '-').slice(0, -1);
+      console.log('업로드 날짜:', conversionDate);
       const linkTitle = iframeDoc.querySelector('.title_text').innerText;
       const nickname = iframeDoc.querySelector('.nickname').innerText;
       // 
@@ -66,7 +68,7 @@ exports.fetchPostWithPuppeteer = async (message) => {
         return {
           title: linkTitle,
           href: linkElement.href,
-          uploadedDate: uploadedDate,
+          uploadedDate: conversionDate,
           nickname: nickname,
           text: linkElement.textContent?.trim() || ''
         };
@@ -77,13 +79,8 @@ exports.fetchPostWithPuppeteer = async (message) => {
     const docId = url.split('/').pop();// URL의 마지막 부분을 문서 ID로 사용
     // const docId = Buffer.from(url).toString('base64').substring(0, 80);
     const saveData = {
-      source_url: url,
-      link: linkData, // 단일 링크 또는 null
-      has_link: !!linkData,
+      ...linkData, // 단일 링크 또는 null
       scraped_at: admin.firestore.FieldValue.serverTimestamp(),
-      index: parseInt(index),
-      batch_id: title,
-      source: 'naver-cafe'
     };
 
     console.log('Firebase에 데이터 저장 중...');
@@ -100,7 +97,6 @@ exports.fetchPostWithPuppeteer = async (message) => {
       link: linkData?.href,
       uploadedDate: linkData?.uploadedDate || null,
       index: parseInt(index), 
-      title 
     };
 
   } catch (error) {
@@ -115,7 +111,7 @@ exports.fetchPostWithPuppeteer = async (message) => {
         error_message: error.message,
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
         index: parseInt(idx),
-        batch_id: message?.data?.message?.attributes?.title || 'unknown'
+        
       });
     } catch (logErr) {
       console.error('에러 로깅 실패:', logErr.message);

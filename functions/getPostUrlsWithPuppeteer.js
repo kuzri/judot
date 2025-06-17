@@ -87,10 +87,8 @@ exports.getPostUrlsWithPuppeteer = async (req, res) => {
         return topic.publishMessage({ 
           attributes: {
             'url': articleId,
-            'title': url.text,
             'index': (index + 1).toString(),
             'timestamp':new Date().toISOString(),
-            'source': 'naver-cafe-scraping'
           }
         });
       })
