@@ -60,11 +60,14 @@ exports.fetchPostWithPuppeteer = async (message) => {
       const linkElement = iframeDoc.querySelector('.se-oglink-info');
       const uploadedDate = iframeDoc.querySelector('.date').innerText;
       const linkTitle = iframeDoc.querySelector('.date').innerText;
+      const nickname = iframeDoc.querySelector('.nickname').innerText;
+      // 
       if (linkElement && linkElement.href) {
         return {
           title: linkTitle,
           href: linkElement.href,
           uploadedDate: uploadedDate,
+          nickname: nickname,
           text: linkElement.textContent?.trim() || ''
         };
       }
