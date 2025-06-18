@@ -4,3 +4,5 @@
 기능 : puppeteer로 특정 url 정보를 획득 -> 해당 url에 다시 접근하여 url 안에 있는 vod정보를 긁어모으는 기능 (현재 1일 1회로 제한)
 
 functions(schduler) -> functions(pub/sub) -> functions(DB 저장)
+
+페이지 상세 설명 링크 : https://www.notion.so/dothi-1fc2a50f14c280eba86fc0e192960bed
