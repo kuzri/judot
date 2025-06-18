@@ -78,8 +78,21 @@ exports.fetchPostWithPuppeteer = async (message) => {
 
     const docId = url.split('/').pop();// URL의 마지막 부분을 문서 ID로 사용
     // const docId = Buffer.from(url).toString('base64').substring(0, 80);
+    const tagCases = [
+  { name: "아이네", tags: ["이세계아이돌","아이네","이세돌","갑노부","데친숙주나물"] },
+	{ name: "징버거", tags: ["이세계아이돌","왁타버스","미소녀강호동","부가땅"] },
+	{ name: "릴파", tags: ["릴파","이세계아이돌","이세돌","대파"] },
+	{ name: "고세구", tags: ["고세구","팬서비스부른애","이세계아이돌","우왁굳"] },
+	{ name: "비챤", tags: ["이세계아이돌","비챤"] },
+];
+
+const member = tagCases.find(({ tags }) =>
+  tags.every(tag => linkData.text.includes(tag))
+);
+
     const saveData = {
       ...linkData, // 단일 링크 또는 null
+      member: member?.name,
       scraped_at: admin.firestore.FieldValue.serverTimestamp(),
     };
 
