@@ -86,9 +86,7 @@ GCP Scheduler → GCP Pub/Sub → Firebase Functions → Firestore
   * **실패 사유**:
 
     * 브라우저의 **CORS 정책**
-    * `blob:` URL은 외부 사이트 접근 불가
-  * → 현재 기술적 한계로 남아있음
+    * `blob:` URL은 외부 사이트 접근 불가 → 현재 기술적 한계로 남아있음
 
 ---
 
-필요하다면 `.md` 파일로 저장할 수 있도록 export 도와드릴게요.
