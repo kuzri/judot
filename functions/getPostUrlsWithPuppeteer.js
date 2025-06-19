@@ -4,7 +4,7 @@ const chromium = require('@sparticuz/chromium');
 const { PubSub } = require('@google-cloud/pubsub');
 
 const CAFE_URL = 'https://cafe.naver.com/f-e/cafes/27842958';
-const BOARD_PATH = '/menus/331?viewType=L&ta=ARTICLE_COMMENT&q=%EB%8F%9A%ED%95%98%EC%9D%B4&page=1';
+const BOARD_PATH = '/menus/331?page=1&size=30&ta=ARTICLE_COMMENT&q=%EB%8F%9A%ED%95%98%EC%9D%B4';
 
 exports.getPostUrlsWithPuppeteer = async (req, res) => {
   console.log('Puppeteer 스크래핑 시작');
