@@ -42,7 +42,7 @@ exports.scheduledScraping = onSchedule(
 exports.getPostUrlsWithPuppeteer = onRequest(
   {
     region: "asia-northeast3",
-    memory: "1GiB",
+    memory: "256MiB",
     timeoutSeconds: 500,
     invoker: "public", // 필요시 "private"
   },
@@ -55,7 +55,7 @@ exports.fetchPostWithPuppeteer = onMessagePublished(
     topic: 'fetch-post-details',
     region: 'asia-northeast3',
     timeoutSeconds: 300,
-    memory: '2GiB',
+    memory: '256MiB',
     concurrency: 1,
   },
   fetchPostWithPuppeteer
